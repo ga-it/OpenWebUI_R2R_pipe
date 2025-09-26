@@ -19,7 +19,6 @@ from open_webui.utils.chat import generate_chat_completion
 
 try:
     import ldap3
-
     LDAP_AVAILABLE = True
 except ImportError:
     LDAP_AVAILABLE = False
@@ -35,17 +34,17 @@ def _get_citation_identifier(meta: dict) -> str:
     """Extract citation identifier from metadata using priority: title | source | filename."""
     if not isinstance(meta, dict):
         return "Unknown"
-
+    
     for key in ("title", "source", "filename"):
         value = meta.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-
+    
     for key in ("file_name", "name", "document_id"):
         value = meta.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-
+    
     return "Unknown"
 
 
@@ -53,11 +52,11 @@ def _extract_nextcloud_file_id(metadata: dict) -> Optional[str]:
     """Extract Nextcloud file ID from metadata filename field."""
     if not isinstance(metadata, dict):
         return None
-
+    
     filename = metadata.get("filename", "")
     if not filename:
         return None
-
+    
     if "files__default:" in filename:
         try:
             file_id = filename.split("files__default:")[-1].strip()
@@ -65,13 +64,13 @@ def _extract_nextcloud_file_id(metadata: dict) -> Optional[str]:
                 return file_id
         except:
             pass
-
+    
     if filename.startswith("files_") and filename[6:].isdigit():
         return filename[6:]
-
+    
     if filename.isdigit():
         return filename
-
+    
     return None
 
 
@@ -81,13 +80,13 @@ def _ldap_lookup_user_guid(email: str, ldap_config: dict) -> Optional[str]:
         raise ImportError(
             "ldap3 library is required for AD authentication. Install with: pip install ldap3"
         )
-
+    
     if not email or not email.strip():
         return None
-
+    
     try:
         from ldap3 import Server, Connection, ALL, SUBTREE
-
+        
         server = Server(ldap_config["server_uri"], get_info=ALL)
         conn = Connection(
             server,
@@ -96,10 +95,10 @@ def _ldap_lookup_user_guid(email: str, ldap_config: dict) -> Optional[str]:
             auto_bind=True,
             receive_timeout=ldap_config.get("timeout", 10),
         )
-
+        
         if not conn.bound:
             return None
-
+        
         search_filter = ldap_config["user_filter"].format(email=email)
         conn.search(
             search_base=ldap_config["search_base"],
@@ -112,16 +111,16 @@ def _ldap_lookup_user_guid(email: str, ldap_config: dict) -> Optional[str]:
                 "cn",
             ],
         )
-
+        
         if not conn.entries:
             return None
-
+        
         entry = conn.entries[0]
         guid_attr = ldap_config["guid_attribute"]
-
+        
         if hasattr(entry, guid_attr):
             guid_value = getattr(entry, guid_attr).value
-
+            
             if isinstance(guid_value, bytes):
                 guid_uuid = uuid.UUID(bytes=guid_value)
                 return str(guid_uuid).upper()
@@ -144,9 +143,9 @@ def _ldap_lookup_user_guid(email: str, ldap_config: dict) -> Optional[str]:
                 elif isinstance(first_guid, bytes):
                     guid_uuid = uuid.UUID(bytes=first_guid)
                     return str(guid_uuid).upper()
-
+        
         return None
-
+        
     except Exception as e:
         print(f"LDAP lookup failed for {email}: {e}")
         return None
@@ -162,12 +161,12 @@ def _get_collection_id_from_guid(user_guid: str, r2r_config: dict) -> Optional[s
     """Get R2R collection ID from user GUID by calling collections API."""
     if not user_guid:
         return None
-
+    
     try:
         url = f"{r2r_config['collections_api_url']}/{user_guid}"
         params = {"owner_id": r2r_config["default_owner_id"]}
         headers = {"Authorization": f"Bearer {r2r_config['bearer_token']}"}
-
+        
         response = requests.get(url, headers=headers, params=params, timeout=10)
         if response.status_code == 200:
             data = response.json()
@@ -182,25 +181,25 @@ def _format_metadata_info(meta: dict) -> list:
     """Extract and format useful metadata information."""
     if not isinstance(meta, dict):
         return []
-
+    
     info_parts = []
-
+    
     for key in ["document_id", "document_type", "filename", "file_name"]:
         if key in meta and meta[key]:
             info_parts.append(f"{key}: {meta[key]}")
-
+    
     for key in ["chunk_index", "page", "page_number", "section", "chapter"]:
         if key in meta and meta[key] is not None:
             info_parts.append(f"{key}: {meta[key]}")
-
+    
     for key in ["created_at", "updated_at", "date", "year"]:
         if key in meta and meta[key]:
             info_parts.append(f"{key}: {meta[key]}")
-
+    
     for key in ["size_in_bytes", "total_tokens"]:
         if key in meta and meta[key] is not None:
             info_parts.append(f"{key}: {meta[key]}")
-
+    
     return info_parts
 
 
@@ -208,10 +207,10 @@ class Pipe:
     class Valves(BaseModel):
         # === Model Configuration ===
         LOCAL_MODEL: str = Field(
-            default="ga3/qwen3:30b-a3b",
+            default="qwen2.5:30b-instruct-q4_0",
             description="Local model to use (e.g., qwen2.5:30b-instruct-q4_0, llama3.2:70b, etc.)",
         )
-
+        
         # === R2R Connection / Auth ===
         api_url: str = Field(
             default="http://your-r2r-server:7272/v3/retrieval/search",
@@ -225,7 +224,7 @@ class Pipe:
             default="",
             description="Authorization Bearer token. Required for authenticated R2R instances.",
         )
-
+        
         # === Active Directory LDAP Configuration ===
         ldap_server_uri: str = Field(
             default="ldap://your-ad-server.domain.com:389",
@@ -251,7 +250,7 @@ class Pipe:
             default="objectGUID",
             description="LDAP attribute containing user GUID (usually 'objectGUID' for AD).",
         )
-
+        
         # === R2R Collections API ===
         collections_api_url: str = Field(
             default="http://your-r2r-server:7272/v3/collections/name",
@@ -261,7 +260,7 @@ class Pipe:
             default="00000000-0000-0000-0000-000000000000",
             description="Default owner ID for R2R collection lookups.",
         )
-
+        
         # === Permission Settings ===
         enforce_permissions: bool = Field(
             default=True,
@@ -271,7 +270,7 @@ class Pipe:
             default=10,
             description="LDAP connection timeout in seconds.",
         )
-
+        
         # === Search Configuration ===
         use_hybrid_search: bool = Field(
             default=True,
@@ -283,7 +282,7 @@ class Pipe:
             ge=1,
             le=100,
         )
-
+        
         # === Response Filtering ===
         max_chunks_in_context: int = Field(
             default=8,
@@ -303,12 +302,14 @@ class Pipe:
             ge=0.0,
             le=1.0,
         )
-
+        
         # === Technical Settings ===
         request_timeout: int = Field(
-            default=30, description="HTTP request timeout in seconds.", ge=5, le=300
+            default=30, 
+            description="HTTP request timeout in seconds.", 
+            ge=5, 
+            le=300
         )
-
         include_metadata: bool = Field(
             default=True,
             description="Include metadata information in context for better citations.",
@@ -322,7 +323,7 @@ class Pipe:
         return [
             {
                 "id": "r2r-search",
-                "name": f"NC R2R ({self.valves.LOCAL_MODEL})",
+                "name": f"R2R Knowledge Search ({self.valves.LOCAL_MODEL})",
             }
         ]
 
@@ -331,35 +332,35 @@ class Pipe:
         input_text = (input_text or "").strip()
         if not input_text:
             return "", None
-
+        
         # Check for structured format
         if input_text.startswith("---") and "---" in input_text[3:]:
             try:
                 yaml_end = input_text.find("---", 3)
                 yaml_content = input_text[3:yaml_end].strip()
-
+                
                 search_query = None
                 llm_instructions = None
-
+                
                 for line in yaml_content.split("\n"):
                     line = line.strip()
                     if line.startswith("search:"):
                         search_query = line[7:].strip().strip("\"'")
                     elif line.startswith("instructions:"):
                         llm_instructions = line[12:].strip().strip("\"'")
-
+                
                 if search_query:
                     return search_query, llm_instructions
             except Exception:
                 pass
-
+        
         # Check for simple delimiter format
         if " | " in input_text:
             parts = input_text.split(" | ", 1)
             search_query = parts[0].strip()
             llm_instructions = parts[1].strip() if len(parts) > 1 else None
             return search_query, llm_instructions
-
+        
         # Default: entire input as search query
         return input_text, None
 
@@ -374,19 +375,19 @@ class Pipe:
                 "limit": min(self.valves.search_limit, 100),
             },
         }
-
+        
         # Add collection-based filtering if permissions are enforced
         if user_collection_id:
             search_payload["search_settings"]["filters"] = {
                 "collection_ids": {"$in": [user_collection_id]}
             }
-
+        
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.valves.bearer_token.strip()}",
             "User-Agent": "OpenWebUI-R2R-Pipe/1.0",
         }
-
+        
         try:
             response = requests.post(
                 self.valves.api_url.rstrip("/"),
@@ -403,7 +404,7 @@ class Pipe:
         """Get user's collection ID through LDAP and R2R APIs."""
         if not self.valves.enforce_permissions:
             return None
-
+        
         # LDAP lookup
         ldap_config = {
             "server_uri": self.valves.ldap_server_uri,
@@ -414,18 +415,18 @@ class Pipe:
             "guid_attribute": self.valves.ldap_guid_attribute,
             "timeout": self.valves.ldap_timeout,
         }
-
+        
         user_guid = _ldap_lookup_user_guid(user_email, ldap_config)
         if not user_guid:
             return None
-
+        
         # R2R collection lookup
         r2r_config = {
             "collections_api_url": self.valves.collections_api_url,
             "bearer_token": self.valves.bearer_token.strip(),
             "default_owner_id": self.valves.default_owner_id,
         }
-
+        
         return _get_collection_id_from_guid(user_guid, r2r_config)
 
     def _build_context_from_results(
@@ -441,13 +442,13 @@ class Pipe:
             for chunk in chunks
             if chunk.get("score", 0.0) >= self.valves.min_relevance_score
         ]
-
+        
         if not filtered_chunks:
             return f"No relevant documents found for query: '{search_query}'"
-
+        
         # Select top chunks for context
         top_chunks = filtered_chunks[: self.valves.max_chunks_in_context]
-
+        
         # Build context parts
         context_parts = [
             "=== SEARCH RESULTS ===",
@@ -455,25 +456,25 @@ class Pipe:
             f"Found {len(filtered_chunks)} relevant results (showing top {len(top_chunks)}):",
             "",
         ]
-
+        
         for idx, chunk in enumerate(top_chunks, 1):
             text = chunk.get("text", "").strip()
             metadata = chunk.get("metadata", {})
             score = chunk.get("score")
             document_id = chunk.get("document_id", "")
-
+            
             citation_id = _get_citation_identifier(metadata)
-
+            
             # Extract Nextcloud file ID and create link
             nextcloud_link = None
             nextcloud_file_id = _extract_nextcloud_file_id(metadata)
-
+            
             if nextcloud_file_id:
                 nextcloud_link = f"{self.valves.nextcloud_base_url.rstrip('/')}/f/{nextcloud_file_id}"
-
+            
             # Truncate text for context
             text = _truncate(text, self.valves.max_chars_per_chunk)
-
+            
             # Format chunk entry
             header = f"[{idx}] Citation ID: {citation_id}"
             if nextcloud_file_id:
@@ -482,28 +483,28 @@ class Pipe:
                 header += f" | Link: {nextcloud_link}"
             if score is not None:
                 header += f" | Relevance: {score:.3f}"
-
+            
             context_parts.append(header)
-
+            
             # Include enhanced metadata for context
             if self.valves.include_metadata:
                 meta_info = []
                 filename = metadata.get("filename", "")
                 if filename:
                     meta_info.append(f"filename: {filename}")
-
+                
                 other_meta = _format_metadata_info(metadata)
                 if document_id:
                     other_meta.insert(0, f"document_id: {document_id}")
                 meta_info.extend(other_meta[:5])
-
+                
                 if meta_info:
                     context_parts.append(f"Metadata: {', '.join(meta_info)}")
-
+            
             context_parts.append("Content:")
             context_parts.append(text)
             context_parts.append("-" * 50)
-
+        
         # Build system prompt
         base_system_prompt = (
             "## CRITICAL CITATION RULES - MUST FOLLOW EXACTLY:\n"
@@ -524,12 +525,12 @@ class Pipe:
             "## Citations: After every sentence that uses the Context, append citations with hyperlinks as shown above.\n"
             "## Formatting: Begin directly with the answer text. No preface, no 'Response:', no lists unless the query demands it. Keep prose concise and factual."
         )
-
+        
         if custom_instructions:
             enhanced_prompt = f"{base_system_prompt}\n\n## ADDITIONAL USER INSTRUCTIONS:\n{custom_instructions}\n"
         else:
             enhanced_prompt = base_system_prompt
-
+        
         return "\n".join(
             [
                 "CRITICAL: You must use the exact Citation ID from each result, NOT numbers like [1], [2], [3].",
@@ -550,39 +551,38 @@ class Pipe:
             # Extract the user's query
             messages = body.get("messages", [])
             if not messages:
-                # Return simple error message for non-streaming
                 return "Error: No messages provided"
-
+            
             last_message = messages[-1]
             if last_message.get("role") != "user":
                 return "Error: Last message must be from user"
-
+            
             user_query = last_message.get("content", "").strip()
             if not user_query:
                 return "Error: Empty user query"
-
+            
             # Parse search query and custom instructions
             search_query, custom_instructions = self._parse_user_input(user_query)
-
+            
             if not search_query or len(search_query.strip()) < 3:
                 return f"Error: Search query too short: '{search_query}'"
-
+            
             # Validate authentication
             if not self.valves.bearer_token.strip():
                 return "Error: Missing R2R authentication token. Please configure the 'bearer_token' in pipe settings."
-
+            
             # Handle user permissions
             user_collection_id = None
             if self.valves.enforce_permissions:
                 user_email = __user__.get("email") if __user__ else None
-
+                
                 if not user_email or "@" not in user_email:
                     return (
                         "❌ **Access Denied**\n\n"
                         "Unable to identify user for permission filtering. This search requires valid "
                         "user authentication to ensure you only see documents you have access to."
                     )
-
+                
                 try:
                     user_collection_id = self._get_user_collection_id(user_email)
                     if not user_collection_id:
@@ -597,7 +597,7 @@ class Pipe:
                         "Unable to verify your document access permissions due to a system error. "
                         "Please try again later or contact your system administrator."
                     )
-
+            
             # Execute R2R search
             try:
                 response_data = self._perform_r2r_search(
@@ -605,14 +605,14 @@ class Pipe:
                 )
             except Exception as e:
                 return f"Error: {str(e)}"
-
+            
             # Process results
             results = response_data.get("results", {})
             if isinstance(results, dict):
                 chunks = results.get("chunk_search_results", [])
             else:
                 chunks = results if isinstance(results, list) else []
-
+            
             if not chunks:
                 return (
                     f"No relevant documents found for query: '{search_query}'\n\n"
@@ -621,28 +621,28 @@ class Pipe:
                     "• You don't have access to documents containing this information\n"
                     "• Try rephrasing your question or using different keywords"
                 )
-
+            
             # Build context for the local model
             enhanced_context = self._build_context_from_results(
                 search_query, chunks, custom_instructions
             )
-
+            
             # Get user object for generate_chat_completion
             user_obj = Users.get_user_by_id(__user__["id"])
-
+            
             # Prepare the request for the local model
             enhanced_body = body.copy()
             enhanced_body["model"] = self.valves.LOCAL_MODEL
-
+            
             # Replace the user's message with the enhanced context
             enhanced_messages = messages[:-1] + [
                 {"role": "user", "content": enhanced_context}
             ]
             enhanced_body["messages"] = enhanced_messages
-
+            
             # Call the local model using OpenWebUI's internal function
             return await generate_chat_completion(__request__, enhanced_body, user_obj)
-
+            
         except Exception as e:
             error_msg = f"❌ **System Error**: {str(e)}"
             print(error_msg)
