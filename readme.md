@@ -23,7 +23,7 @@ A comprehensive OpenWebUI pipe that integrates with R2R (RAG to Riches) knowledg
 - Citation format: `[Document Title][https://nextcloud.domain.com/f/8060008]`
 
 ### 🏠 **Local Model Integration**
-- **Complete data privacy** - all LLM processing happens locally
+- **Complete data privacy** - all LLM processing happens locally if piped via a local model
 - No external API calls to LLM services (OpenAI, Anthropic, etc.)
 - Configurable local model selection (Qwen, Llama, etc.)
 - Uses OpenWebUI's internal `generate_chat_completion` function
@@ -34,6 +34,12 @@ A comprehensive OpenWebUI pipe that integrates with R2R (RAG to Riches) knowledg
   - Pipe-delimited: `"strategy frameworks | format as bullet points"`
   - YAML-structured: Separate search terms from presentation instructions
   - Natural language: `"Search for frameworks. Please format as comparison table."`
+
+## **Example output**
+
+- Simple query with results from Nextcloud document corpus as per R2R Graph RAG
+
+![Screenshot of R2R result in OpenWebUI](images/OpenWebUINextcloudR2RQuery.png)
 
 ## Architecture
 
