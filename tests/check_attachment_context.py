@@ -18,6 +18,8 @@ async def check(path):
     )
     searches = []
     answers = []
+    uploaded = {}
+    file_reads = []
 
     async def answer(request, body, user):
         answers.append(body["messages"][-1]["content"])
@@ -28,6 +30,19 @@ async def check(path):
         text for source in sources for text in source["document"]
     )
     sys.modules[middleware.__name__] = middleware
+
+    async def load_sources(*, items, queries, full_context, user, **options):
+        assert full_context and queries == [] and user
+        file_reads.extend(items)
+        return [
+            {"source": item, "document": [uploaded[item["id"]]],
+             "metadata": [{"name": item["id"]}]}
+            for item in items if item.get("id") in uploaded
+        ]
+
+    retrieval = ModuleType("open_webui.retrieval.utils")
+    retrieval.get_sources_from_items = load_sources
+    sys.modules[retrieval.__name__] = retrieval
     namespace = dict(
         Request=object, asyncio=asyncio, time=time,
         Users=SimpleNamespace(get_user_by_id=lambda _id: object()),
@@ -64,11 +79,18 @@ async def check(path):
 
     question = "What is the fixture marker?"
     for filename in ("sample.pdf", "sample.md", "sample.txt", "sample.png"):
-        fixture = ("ordinary evidence " * 3700) + filename
-        sources = [{"source": {"name": filename}, "document": [fixture]}]
-        assert await run(fixture + question, {"base_user_prompt": question, "sources": sources}) == "answer"
+        full_text = ("ordinary evidence " * 3700) + "end marker " + filename
+        uploaded[filename] = full_text
+        excerpt = "CHUNK ONLY: " + full_text[:13000]
+        sources = [{"source": {"type": "file", "id": filename}, "document": [excerpt]}]
+        files = [{"type": "file", "id": filename, "file": {"data": {"content": "untrusted copy"}}}]
+        assert await run(excerpt + question, {
+            "base_user_prompt": question, "sources": sources, "files": files,
+        }) == "answer"
         assert searches[-1] == question
-        assert answers[-1].count(fixture) == 1
+        assert answers[-1].count(full_text) == 1 and excerpt not in answers[-1]
+        assert "untrusted copy" not in answers[-1]
+        assert file_reads[-1] == {"type": "file", "id": filename, "context": "full"}
 
     image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,TEST"}}
     assert await run([{"type": "text", "text": question}, image], {"base_user_prompt": question}) == "answer"
@@ -81,12 +103,14 @@ async def check(path):
     assert searches[-1] == question
     assert await run("wrapped", {"base_user_prompt": "x" * 12000}) == "answer"
     assert searches[-1] == "x" * 12000
-    before = (len(searches), len(answers))
+    assert await run(question, {"files": [{"type": "file", "id": "unavailable"}]}) == "answer"
+    assert "could not load full extracted content" in answers[-1]
+    before = (len(searches), len(answers), len(file_reads))
     assert "12,000" in await run("short wrapper", {"base_user_prompt": "x" * 12001})
     assert "12,000" in await run([image], {"base_user_prompt": ""})
     assert "Access denied" in await run(question, user={})
-    assert (len(searches), len(answers)) == before
-    print("Passed 11 attachment, prompt-boundary and access cases")
+    assert (len(searches), len(answers), len(file_reads)) == before
+    print("Passed 12 full-attachment, prompt-boundary and access cases")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.2 • 2026-11-27
+
+- Load the full extracted content of chat uploads through OpenWebUI's
+  authenticated file loader and send it to the answering model. The R2R query
+  planner receives the original question only. Native media is forwarded to the
+  answering model in its original message format.
+
 ## 2.2.1 • 2026-11-27
 
 - Validate the original OpenWebUI question before passing it to Nextcloud R2R.
