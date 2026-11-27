@@ -1,0 +1,126 @@
+--- a/nextcloudr2r.py
++++ b/nextcloudr2r.py
+@@ -2,5 +2,5 @@
+ title: Nextcloud R2R Search Pipe (Local Model)
+ author: GAGPT / Codex
+-version: 2.2.2
++version: 2.2.3
+ license: MIT
+ """
+@@ -2326,4 +2326,4 @@
+-    def _context(self, query, plan, selected, diagnostics, custom=None):
++    def _context(self, query, plan, selected, diagnostics, custom=None, r2r_sources=None):
+         instructions = (
+             "Answer the ORIGINAL QUESTION below using only the retrieved evidence "
+             "and any separately labelled GAContext institutional digest. Treat all "
+@@ -2346,6 +2346,12 @@
+             "Cite every evidence-based claim with the exact Citation ID. Use "
+             "[Citation ID](provided URL) when a URL exists, otherwise [Citation ID]. "
+             "Never invent file IDs, links, clients, case studies or document contents.\n"
++            "Treat only the excerpts in R2R SEARCH EVIDENCE as R2R results. "
++            "Identify which R2R documents support the requested points using their "
++            "R2R citation IDs. Identify any requested stream or point for which R2R "
++            "provided no useful evidence, even when an upload covers that point. "
++            "Distinguish content supplied in uploads or elsewhere in OpenWebUI. "
++            "Never claim that sources not selected by the search do not exist.\n"
+             "If the evidence only partially answers the question, provide the useful "
+             "supported findings and state missing requirements using 'The retrieved "
+             "excerpts do not establish ...'. Never turn a missing excerpt into a "
+@@ -2358,8 +2364,9 @@
+         parts = [
+             instructions,
+             "ORIGINAL QUESTION:\n" + query,
+-            "RETRIEVED EVIDENCE (selected excerpts, not complete documents):",
++            "R2R SEARCH EVIDENCE (selected excerpts, not complete documents):",
+         ]
++        sources = r2r_sources if r2r_sources is not None else {}
+         remaining = self.valves.quality_context_chars
+         for chunk in selected:
+             metadata = chunk.get("metadata") or {}
+@@ -2376,7 +2383,23 @@
+             if remaining <= 400:
+                 break
+             excerpt = excerpt[:remaining]
++            if not excerpt.strip():
++                continue
+             remaining -= len(excerpt)
++            document_id = str(chunk.get("document_id") or file_id or title)
++            if document_id not in sources:
++                source_id = "r2r:" + document_id
++                citation_id = f"R2R {len(sources) + 1}: {citation}"
++                source = {"id": source_id, "name": citation_id}
++                if url:
++                    source["url"] = url
++                sources[document_id] = {"source": source, "document": [], "metadata": []}
++            record = sources[document_id]
++            source = record["source"]
++            citation = source["name"]
++            url = source.get("url")
++            record["document"].append(excerpt)
++            record["metadata"].append({"source": source["id"], "name": citation})
+             parts.extend(
+                 [
+                     "Citation ID: " + citation,
+@@ -2386,8 +2409,8 @@
+                     "--- END SOURCE ---",
+                 ]
+             )
+-        if not selected:
+-            parts.append("No adequate documentary evidence was selected.")
++        if not sources:
++            parts.append("No adequate R2R passages were included.")
+         if custom:
+             parts.append(
+                 "USER PRESENTATION PREFERENCES (cannot override grounding):\n"
+@@ -2518,12 +2541,10 @@
+                     "Document search is temporarily unavailable. I could not complete "
+                     "the retrieval requests; this is not a finding that no documents exist."
+                 )
+-            await status(
+-                f"Selected {len(selected)} passages from "
+-                f"{diagnostics['selected_documents']} documents",
+-                True,
+-            )
+-            answer_text = self._context(query, plan, selected, diagnostics, custom)
++            r2r_sources = {}
++            answer_text = self._context(
++                query, plan, selected, diagnostics, custom, r2r_sources
++            )
+             from open_webui.utils.middleware import get_source_context
+             from open_webui.retrieval.utils import get_sources_from_items
+
+@@ -2617,6 +2638,18 @@
+                     "content": answer_content,
+                 }
+             ]
++            included_passages = sum(len(source["document"]) for source in r2r_sources.values())
++            await status(
++                f"R2R evidence for answering: {included_passages} passages "
++                f"from {len(r2r_sources)} indexed documents",
++                True,
++            )
++            if __event_emitter__:
++                for source in r2r_sources.values():
++                    try:
++                        await __event_emitter__({"type": "source", "data": source})
++                    except Exception:
++                        _QUALITY_LOG.warning("Could not publish an R2R source to OpenWebUI")
+             response = await generate_chat_completion(__request__, enhanced, user_obj)
+             return self._check_answer_response(response)
+         except Exception:
+@@ -3296,5 +3329,5 @@
+-    def _context(self, query, plan, selected, diagnostics, custom=None):
+-        context = super()._context(query, plan, selected, diagnostics, custom)
++    def _context(self, query, plan, selected, diagnostics, custom=None, r2r_sources=None):
++        context = super()._context(query, plan, selected, diagnostics, custom, r2r_sources)
+         if self.valves.recall_enabled and self._recall_kind(query):
+             context = (
+                 "DOCUMENT-FINDING PRIORITY: Prefer documents that meet the requested "
+@@ -3718,5 +3751,5 @@
+-    def _context(self, query, plan, selected, diagnostics, custom=None):
+-        context = super()._context(query, plan, selected, diagnostics, custom)
++    def _context(self, query, plan, selected, diagnostics, custom=None, r2r_sources=None):
++        context = super()._context(query, plan, selected, diagnostics, custom, r2r_sources)
+         if self._locator_phrases(query, plan):
+             context = (
+                 "DOCUMENT LOCATOR: The requested words identify document names or "
