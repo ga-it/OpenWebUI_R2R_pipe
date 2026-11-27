@@ -69,6 +69,13 @@ graph TB
 
 ## Installation
 
+The installed GA OpenWebUI function has its own revision history. For the 2.2
+deployment, apply the [attachment context patch](patches/nextcloudr2r-2.2.1-attachment-context.patch)
+to an export of that revision and run `python tests/check_attachment_context.py nextcloudr2r.py`
+before saving it through the OpenWebUI Functions editor. The patch targets the
+deployed function export. The repository's `r2rpipe.py` is the older 1.0 baseline.
+Keep the preceding OpenWebUI function revision available for rollback.
+
 ### Prerequisites
 
 ```bash
