@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.3 • 2026-11-27
+
+- Publish named R2R sources in OpenWebUI for the permission-scoped excerpts
+  included in the answer context. Keep uploads separately identifiable and ask
+  the answering model to show where indexed evidence contributed or fell short.
+
 ## 2.2.2 • 2026-11-27
 
 - Load the full extracted content of chat uploads through OpenWebUI's

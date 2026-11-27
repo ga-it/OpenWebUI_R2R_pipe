@@ -76,6 +76,11 @@ before saving it through the OpenWebUI Functions editor. The patch targets the
 deployed function export. The repository's `r2rpipe.py` is the older 1.0 baseline.
 Keep the preceding OpenWebUI function revision available for rollback.
 
+For the deployed 2.2.2 editor export, apply the
+[R2R source provenance patch](patches/nextcloudr2r-2.2.3-r2r-source-provenance.patch)
+and run the same regression check. The patch targets the formatted OpenWebUI
+editor export rather than the unformatted 2.2.2 patch output.
+
 ### Prerequisites
 
 ```bash

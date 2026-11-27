@@ -3,6 +3,7 @@
 import ast
 import asyncio
 import inspect
+import logging
 from pathlib import Path
 import sys
 import time
@@ -18,6 +19,7 @@ async def check(path):
     )
     searches = []
     answers = []
+    events = []
     uploaded = {}
     file_reads = []
 
@@ -48,12 +50,22 @@ async def check(path):
         Users=SimpleNamespace(get_user_by_id=lambda _id: object()),
         inspect=inspect, generate_chat_completion=answer,
         _clean_ws=lambda text: " ".join(text.split()),
+        _quality_title=lambda chunk: chunk["title"],
+        _quality_file_id=lambda metadata: metadata.get("file_id"),
+        _QUALITY_LOG=logging.getLogger(__name__),
     )
     exec(compile(ast.Module(body=[method], type_ignores=[]), str(path), "exec"), namespace)
+    context_method = next((item for item in ast.walk(tree)
+                           if isinstance(item, ast.FunctionDef) and item.name == "_context"
+                           and any(arg.arg == "r2r_sources" for arg in item.args.args)
+                           and any(isinstance(node, ast.For) for node in item.body)), None)
+    if context_method:
+        exec(compile(ast.Module(body=[context_method], type_ignores=[]), str(path), "exec"), namespace)
 
     class Pipe:
         pipe = namespace["pipe"]
         valves = SimpleNamespace(bearer_token="test", quality_diagnostics=False)
+        selected = []
         _parse_user_input = staticmethod(lambda text: (text, None, None))
         _get_user_collection_id = staticmethod(lambda email: "test-collection")
         _answer_body = staticmethod(dict)
@@ -65,16 +77,19 @@ async def check(path):
 
         async def _retrieve(self, query, plan, collection):
             assert collection == "test-collection"
-            return [], {"searches": [{"stage": "semantic", "ok": True}], "selected_documents": 0}
+            return self.selected, {"searches": [{"stage": "semantic", "ok": True}], "selected_documents": 0}
 
-        def _context(self, query, plan, selected, diagnostics, custom):
+        def _context(self, query, plan, selected, diagnostics, custom, r2r_sources=None):
             return "Original question: " + query
+
+    async def emit(event):
+        events.append(event)
 
     async def run(content, metadata=None, user=None):
         return await Pipe().pipe(
             {"messages": [{"role": "user", "content": content}]},
             {"id": "test", "email": "a@example.test"} if user is None else user,
-            object(), __metadata__=metadata,
+            object(), __metadata__=metadata, __event_emitter__=emit,
         )
 
     question = "What is the fixture marker?"
@@ -111,6 +126,29 @@ async def check(path):
     assert "Access denied" in await run(question, user={})
     assert (len(searches), len(answers), len(file_reads)) == before
     print("Passed 12 full-attachment, prompt-boundary and access cases")
+
+    if context_method:
+        Pipe._context = namespace["_context"]
+        Pipe._excerpt = staticmethod(lambda value, query, plan: value)
+        Pipe.valves.nextcloud_base_url = "https://files.example.test"
+        Pipe.valves.quality_context_chars = 450
+        Pipe.selected = [
+            {"document_id": "a", "title": "one/report.md", "text": "first excerpt", "metadata": {"file_id": "17"}},
+            {"document_id": "a", "title": "one/report.md", "text": "second excerpt"},
+            {"document_id": "b", "title": "two/report.md", "text": "b" * 500 + "hidden tail"},
+            {"document_id": "c", "title": "excluded.md", "text": "never sent"},
+        ]
+        events.clear()
+        assert await run(question) == "answer"
+        published = [event["data"] for event in events if event["type"] == "source"]
+        assert [entry["source"]["id"] for entry in published] == ["r2r:a", "r2r:b"]
+        assert published[0]["source"]["url"] == "https://files.example.test/f/17"
+        assert published[0]["document"] == ["first excerpt", "second excerpt"]
+        assert published[1]["source"]["name"] != published[0]["source"]["name"]
+        assert all(text in answers[-1] for entry in published for text in entry["document"])
+        assert "hidden tail" not in answers[-1] and "never sent" not in answers[-1]
+        assert any("3 passages from 2 indexed documents" in e["data"].get("description", "") for e in events)
+        print("Passed R2R source grouping, context budget, and citation event check")
 
 
 if __name__ == "__main__":
